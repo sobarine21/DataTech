@@ -10,9 +10,10 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import accuracy_score, mean_squared_error
 from datetime import datetime
-from io import StringIO, BytesIO
+from io import BytesIO
 import base64
 import json
+import ast
 
 # Helper Functions
 def load_data(file):
@@ -26,15 +27,14 @@ def load_data(file):
         st.error("Unsupported file type.")
         return None
 
-def save_to_pdf(df, filename):
-    pdf = BytesIO()
-    df.to_csv(pdf, index=False)
-    b64 = base64.b64encode(pdf.getvalue()).decode()
-    href = f'<a href="data:file/pdf;base64,{b64}" download="{filename}.csv">Download CSV file</a>'
+def save_to_csv(df, filename):
+    csv = df.to_csv(index=False)
+    b64 = base64.b64encode(csv.encode()).decode()
+    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv">Download CSV file</a>'
     st.markdown(href, unsafe_allow_html=True)
 
 def preprocess_text(text_column):
-    return text_column.str.lower().str.replace('[^\w\s]', '').str.strip()
+    return text_column.str.lower().str.replace('[^\w\s]', '', regex=True).str.strip()
 
 def visualize_data(df):
     st.subheader("Correlation Heatmap")
@@ -158,7 +158,7 @@ def main():
         # Download Processed Data
         st.subheader("Download Processed Data")
         if st.button("Download CSV"):
-            save_to_pdf(df, "processed_data")
+            save_to_csv(df, "processed_data")
 
 if __name__ == "__main__":
     main()
