@@ -7,10 +7,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
 from sklearn.metrics import accuracy_score, mean_squared_error
+from datetime import datetime
 from io import BytesIO
 import base64
+import json
 
 # Helper Functions
 def load_data(file):
@@ -24,35 +26,84 @@ def load_data(file):
         st.error("Unsupported file type.")
         return None
 
-def save_to_csv(df, filename):
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv">Download CSV file</a>'
+def save_to_pdf(df, filename):
+    pdf = BytesIO()
+    df.to_csv(pdf, index=False)
+    b64 = base64.b64encode(pdf.getvalue()).decode()
+    href = f'<a href="data:file/pdf;base64,{b64}" download="{filename}.csv">Download CSV file</a>'
     st.markdown(href, unsafe_allow_html=True)
 
 def preprocess_text(text_column):
-    return text_column.str.lower().str.replace('[^\w\s]', '', regex=True).str.strip()
+    return text_column.str.lower().str.replace('[^\w\s]', '').str.strip()
 
 def visualize_data(df):
     st.subheader("Correlation Heatmap")
-    if df.select_dtypes(include=['float', 'int']).shape[1] > 1:
-        correlation = df.corr()
-        fig, ax = plt.subplots()
-        sns.heatmap(correlation, ax=ax, annot=True, cmap='coolwarm')
-        st.pyplot(fig)
-    else:
-        st.write("Not enough numerical data for correlation heatmap.")
-    
+    correlation = df.corr()
+    fig, ax = plt.subplots()
+    sns.heatmap(correlation, ax=ax, annot=True, cmap='coolwarm')
+    st.pyplot(fig)
+
     st.subheader("Box Plot for Outliers")
     numerical_cols = df.select_dtypes(include=['float', 'int']).columns
-    if not numerical_cols.empty:
-        column = st.selectbox("Select a column for box plot:", numerical_cols)
-        if column:
-            fig, ax = plt.subplots()
-            sns.boxplot(x=df[column], ax=ax)
-            st.pyplot(fig)
-    else:
-        st.write("No numerical columns available for box plot.")
+    column = st.selectbox("Select a column for box plot:", numerical_cols)
+    if column:
+        fig, ax = plt.subplots()
+        sns.boxplot(x=df[column], ax=ax)
+        st.pyplot(fig)
+
+# New Functions
+def outlier_removal(df, column):
+    if column:
+        Q1 = df[column].quantile(0.25)
+        Q3 = df[column].quantile(0.75)
+        IQR = Q3 - Q1
+        return df[(df[column] >= (Q1 - 1.5 * IQR)) & (df[column] <= (Q3 + 1.5 * IQR))]
+    return df
+
+def fill_missing_with_knn(df, n_neighbors=5):
+    from sklearn.impute import KNNImputer
+    imputer = KNNImputer(n_neighbors=n_neighbors)
+    df[df.select_dtypes(include=['float', 'int']).columns] = imputer.fit_transform(df.select_dtypes(include=['float', 'int']))
+    return df
+
+def generate_summary_statistics(df):
+    st.subheader("Summary Statistics")
+    st.write(df.describe())
+
+def date_parser(df, column):
+    if column:
+        df[column] = pd.to_datetime(df[column], errors='coerce')
+        st.write(f"Converted {column} to datetime.")
+    return df
+
+def feature_importance(model, X, y):
+    importances = model.feature_importances_
+    feature_importance_df = pd.DataFrame({'Feature': X.columns, 'Importance': importances})
+    st.bar_chart(feature_importance_df.set_index('Feature'))
+
+def apply_one_hot_encoding(df):
+    categorical_cols = df.select_dtypes(include=['object']).columns
+    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+    return df
+
+def time_series_analysis(df, date_column):
+    df[date_column] = pd.to_datetime(df[date_column])
+    df.set_index(date_column, inplace=True)
+    st.line_chart(df)
+
+def get_data_shapes(df):
+    st.write("Data Shape:", df.shape)
+    st.write("Column Shapes:", {col: df[col].shape for col in df.columns})
+
+def missing_values_heatmap(df):
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(df.isnull(), cbar=False, cmap='viridis')
+    st.pyplot(plt)
+
+def correlation_matrix(df):
+    corr = df.corr()
+    sns.heatmap(corr, annot=True, cmap='coolwarm')
+    st.pyplot(plt)
 
 # Main Application
 def main():
@@ -62,14 +113,14 @@ def main():
     st.sidebar.header("Login")
     user = st.sidebar.text_input("Username")
     password = st.sidebar.text_input("Password", type="password")
-    
+
     if st.sidebar.button("Login"):
         if user == "admin" and password == "admin":
             st.sidebar.success("Logged in successfully!")
         else:
             st.sidebar.error("Invalid login")
             return
-    
+
     # File Upload
     uploaded_file = st.file_uploader("Upload your data file", type=["csv", "xlsx", "json"])
 
@@ -79,27 +130,30 @@ def main():
 
         # Data Profiling Report
         st.subheader("Data Profiling")
-        st.write("Shape of data:", df.shape)
+        get_data_shapes(df)
         st.write("Data Types:", df.dtypes)
         st.write("Missing values per column:", df.isna().sum())
-        
+
         # Data Cleansing Options
         st.subheader("Data Cleansing")
         if st.checkbox("Remove Duplicates"):
             df = df.drop_duplicates()
             st.write("Duplicates removed.")
-        
+
         if st.checkbox("Handle Missing Values"):
-            missing_method = st.selectbox("Choose method", ("Mean", "Median", "Mode"))
+            missing_method = st.selectbox("Choose method", ("Mean", "Median", "Mode", "KNN"))
             if missing_method == "Mean":
                 df.fillna(df.mean(), inplace=True)
             elif missing_method == "Median":
                 df.fillna(df.median(), inplace=True)
             elif missing_method == "Mode":
                 df.fillna(df.mode().iloc[0], inplace=True)
+            elif missing_method == "KNN":
+                n_neighbors = st.slider("Select number of neighbors", 1, 10, 5)
+                df = fill_missing_with_knn(df, n_neighbors)
             st.write("Missing values handled.")
 
-        # Feature Engineering and Scaling
+        # Data Scaling and Encoding
         st.subheader("Feature Engineering and Scaling")
         if st.checkbox("Scale Data"):
             scaler = st.selectbox("Choose scaling method", ("Standard Scaler", "Min-Max Scaler"))
@@ -110,17 +164,14 @@ def main():
             df[df.select_dtypes(include=['float', 'int']).columns] = scaler.fit_transform(df.select_dtypes(include=['float', 'int']))
             st.write("Data scaled.")
 
-        if st.checkbox("Feature Engineering"):
-            feature_col1 = st.selectbox("Select first column for feature creation:", df.columns)
-            feature_col2 = st.selectbox("Select second column for feature creation:", df.columns)
-            if feature_col1 and feature_col2:
-                df['new_feature'] = df[feature_col1] + df[feature_col2]
-                st.write("New feature created:", df[['new_feature']].head())
+        if st.checkbox("One-Hot Encode Categorical Variables"):
+            df = apply_one_hot_encoding(df)
+            st.write("One-hot encoding applied.")
 
         # Data Visualization
         st.subheader("Data Visualization")
         visualize_data(df)
-        
+
         if st.checkbox("Histogram"):
             column = st.selectbox("Select column for histogram", df.columns)
             fig, ax = plt.subplots()
@@ -130,48 +181,48 @@ def main():
         # Machine Learning Model Training
         st.subheader("Machine Learning")
         target = st.selectbox("Select target column", df.columns)
-        
+
         if st.checkbox("Train Linear Regression Model"):
             X = df.drop(target, axis=1)
             y = df[target]
-            if len(X) > 1:  # Check for sufficient samples
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-                model = LinearRegression()
-                model.fit(X_train, y_train)
-                predictions = model.predict(X_test)
-                mse = mean_squared_error(y_test, predictions)
-                st.write("Linear Regression Mean Squared Error:", mse)
-            else:
-                st.write("Not enough data samples to perform train-test split for Linear Regression.")
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+            model = LinearRegression()
+            model.fit(X_train, y_train)
+            predictions = model.predict(X_test)
+            mse = mean_squared_error(y_test, predictions)
+            st.write("Linear Regression Mean Squared Error:", mse)
 
         if st.checkbox("Train Classification Model (Random Forest)"):
             X = df.drop(target, axis=1)
             y = df[target]
-            if len(X) > 1:  # Check for sufficient samples
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-                model = RandomForestClassifier()
-                model.fit(X_train, y_train)
-                predictions = model.predict(X_test)
-                accuracy = accuracy_score(y_test, predictions)
-                st.write("Random Forest Accuracy:", accuracy)
-            else:
-                st.write("Not enough data samples to perform train-test split for Random Forest.")
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+            model = RandomForestClassifier()
+            model.fit(X_train, y_train)
+            predictions = model.predict(X_test)
+            accuracy = accuracy_score(y_test, predictions)
+            st.write("Random Forest Accuracy:", accuracy)
+            feature_importance(model, X, y)
 
         if st.checkbox("Perform Clustering (KMeans)"):
-            num_clusters = st.slider("Number of clusters", 2, min(10, len(df)), 3)
-            numeric_df = df.select_dtypes(include=['float', 'int']).dropna()
-            if len(numeric_df) >= num_clusters:
+            num_clusters = st.slider("Number of clusters", 2, 10, 3)
+            if df.shape[0] > num_clusters:
                 kmeans = KMeans(n_clusters=num_clusters)
-                df['Cluster'] = kmeans.fit_predict(numeric_df)
+                df['Cluster'] = kmeans.fit_predict(df.select_dtypes(include=['float', 'int']))
                 st.write("Clustering completed.")
                 st.write(df.head())
             else:
-                st.error("Not enough data for clustering with the selected number of clusters.")
+                st.warning("Number of samples is less than number of clusters.")
+
+        # Time Series Analysis
+        if st.checkbox("Time Series Analysis"):
+            date_column = st.selectbox("Select date column", df.columns)
+            if date_column:
+                time_series_analysis(df, date_column)
 
         # Download Processed Data
         st.subheader("Download Processed Data")
         if st.button("Download CSV"):
-            save_to_csv(df, "processed_data")
+            save_to_pdf(df, "processed_data")
 
 if __name__ == "__main__":
     main()
