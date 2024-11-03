@@ -134,22 +134,28 @@ def main():
         if st.checkbox("Train Linear Regression Model"):
             X = df.drop(target, axis=1)
             y = df[target]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-            model = LinearRegression()
-            model.fit(X_train, y_train)
-            predictions = model.predict(X_test)
-            mse = mean_squared_error(y_test, predictions)
-            st.write("Linear Regression Mean Squared Error:", mse)
+            if len(X) > 1:  # Check for sufficient samples
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+                model = LinearRegression()
+                model.fit(X_train, y_train)
+                predictions = model.predict(X_test)
+                mse = mean_squared_error(y_test, predictions)
+                st.write("Linear Regression Mean Squared Error:", mse)
+            else:
+                st.write("Not enough data samples to perform train-test split for Linear Regression.")
 
         if st.checkbox("Train Classification Model (Random Forest)"):
             X = df.drop(target, axis=1)
             y = df[target]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-            model = RandomForestClassifier()
-            model.fit(X_train, y_train)
-            predictions = model.predict(X_test)
-            accuracy = accuracy_score(y_test, predictions)
-            st.write("Random Forest Accuracy:", accuracy)
+            if len(X) > 1:  # Check for sufficient samples
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+                model = RandomForestClassifier()
+                model.fit(X_train, y_train)
+                predictions = model.predict(X_test)
+                accuracy = accuracy_score(y_test, predictions)
+                st.write("Random Forest Accuracy:", accuracy)
+            else:
+                st.write("Not enough data samples to perform train-test split for Random Forest.")
 
         if st.checkbox("Perform Clustering (KMeans)"):
             num_clusters = st.slider("Number of clusters", 2, min(10, len(df)), 3)
