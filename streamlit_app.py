@@ -9,11 +9,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import accuracy_score, mean_squared_error
-from datetime import datetime
 from io import BytesIO
 import base64
-import json
-import ast
 
 # Helper Functions
 def load_data(file):
@@ -38,18 +35,24 @@ def preprocess_text(text_column):
 
 def visualize_data(df):
     st.subheader("Correlation Heatmap")
-    correlation = df.corr()
-    fig, ax = plt.subplots()
-    sns.heatmap(correlation, ax=ax, annot=True, cmap='coolwarm')
-    st.pyplot(fig)
+    if df.select_dtypes(include=['float', 'int']).shape[1] > 1:
+        correlation = df.corr()
+        fig, ax = plt.subplots()
+        sns.heatmap(correlation, ax=ax, annot=True, cmap='coolwarm')
+        st.pyplot(fig)
+    else:
+        st.write("Not enough numerical data for correlation heatmap.")
     
     st.subheader("Box Plot for Outliers")
     numerical_cols = df.select_dtypes(include=['float', 'int']).columns
-    column = st.selectbox("Select a column for box plot:", numerical_cols)
-    if column:
-        fig, ax = plt.subplots()
-        sns.boxplot(x=df[column], ax=ax)
-        st.pyplot(fig)
+    if not numerical_cols.empty:
+        column = st.selectbox("Select a column for box plot:", numerical_cols)
+        if column:
+            fig, ax = plt.subplots()
+            sns.boxplot(x=df[column], ax=ax)
+            st.pyplot(fig)
+    else:
+        st.write("No numerical columns available for box plot.")
 
 # Main Application
 def main():
@@ -149,11 +152,15 @@ def main():
             st.write("Random Forest Accuracy:", accuracy)
 
         if st.checkbox("Perform Clustering (KMeans)"):
-            num_clusters = st.slider("Number of clusters", 2, 10, 3)
-            kmeans = KMeans(n_clusters=num_clusters)
-            df['Cluster'] = kmeans.fit_predict(df.select_dtypes(include=['float', 'int']))
-            st.write("Clustering completed.")
-            st.write(df.head())
+            num_clusters = st.slider("Number of clusters", 2, min(10, len(df)), 3)
+            numeric_df = df.select_dtypes(include=['float', 'int']).dropna()
+            if len(numeric_df) >= num_clusters:
+                kmeans = KMeans(n_clusters=num_clusters)
+                df['Cluster'] = kmeans.fit_predict(numeric_df)
+                st.write("Clustering completed.")
+                st.write(df.head())
+            else:
+                st.error("Not enough data for clustering with the selected number of clusters.")
 
         # Download Processed Data
         st.subheader("Download Processed Data")
